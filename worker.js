@@ -6,12 +6,18 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
-    const target = `https://statsapi.mlb.com${url.pathname}${url.search}`;
+    const target = buildTargetUrl(url);
+    if (!target) {
+      return new Response("Unsupported proxy path", {
+        status: 404,
+        headers: corsHeaders(),
+      });
+    }
 
     const response = await fetch(target, {
       method: "GET",
       headers: {
-        Accept: "application/json",
+        Accept: url.pathname.startsWith("/savant/") ? "text/csv,*/*" : "application/json",
         "User-Agent": "Mozilla/5.0",
       },
     });
@@ -28,6 +34,19 @@ export default {
     });
   },
 };
+
+function buildTargetUrl(url) {
+  if (url.pathname.startsWith("/api/")) {
+    return `https://statsapi.mlb.com${url.pathname}${url.search}`;
+  }
+
+  if (url.pathname.startsWith("/savant/")) {
+    const savantPath = url.pathname.replace(/^\/savant/, "");
+    return `https://baseballsavant.mlb.com${savantPath}${url.search}`;
+  }
+
+  return null;
+}
 
 function corsHeaders() {
   return {

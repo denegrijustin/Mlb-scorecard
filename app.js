@@ -1,5 +1,7 @@
 (function () {
   let currentGamePk = null;
+  let currentGameData = null;
+  let currentTrends = null;
   let showFullLog = false;
   const $ = id => document.getElementById(id);
 
@@ -32,6 +34,12 @@
     $("lastUpdated").textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
   }
 
+  function setApiStatus(status, message) {
+    const statusEl = $("apiStatus");
+    statusEl.className = `api-status ${status}`;
+    $("apiStatusText").textContent = message;
+  }
+
   async function guarded(action) {
     clearError();
     try { await action(); }
@@ -42,7 +50,10 @@
   }
 
   async function loadGames() {
-    const data = await window.MLBApi.getSchedule($("dateInput").value, $("teamInput").value);
+    const date = $("dateInput").value;
+    if (!date) throw new Error("Choose a game date before searching.");
+
+    const data = await window.MLBApi.getSchedule(date, $("teamInput").value);
     renderGames(data.dates?.[0]?.games || []);
     setLastUpdated();
   }
@@ -50,7 +61,7 @@
   function renderGames(games) {
     const container = $("gamesList");
     if (!games.length) {
-      container.innerHTML = "No MLB games found for that date/filter.";
+      container.innerHTML = `<div class="empty-state">No MLB games found for that date and team filter.</div>`;
       return;
     }
 
@@ -61,14 +72,21 @@
       const hasScore = Number.isFinite(game.teams.away.score);
       const score = hasScore ? `${game.teams.away.score} - ${game.teams.home.score}` : "Not started";
       const start = game.gameDate ? new Date(game.gameDate).toLocaleString() : "";
+      const venue = game.venue?.name || "";
       return `
         <div class="game-card">
-          <div>
-            <strong>${escapeHtml(away)} at ${escapeHtml(home)}</strong>
-            <div class="muted">${escapeHtml(start)}</div>
-            <div><span class="pill">${escapeHtml(state)}</span> ${escapeHtml(score)}</div>
+          <div class="game-card-main">
+            <div class="matchup">
+              <span>${escapeHtml(away)}</span>
+              <strong>${escapeHtml(score)}</strong>
+              <span>${escapeHtml(home)}</span>
+            </div>
+            <div class="game-details">${escapeHtml(start)}${venue ? ` · ${escapeHtml(venue)}` : ""}</div>
           </div>
-          <button data-gamepk="${game.gamePk}" class="open-game-btn">Open</button>
+          <div class="game-actions">
+            <span class="pill">${escapeHtml(state)}</span>
+            <button data-gamepk="${game.gamePk}" class="open-game-btn">Open</button>
+          </div>
         </div>
       `;
     }).join("");
@@ -80,8 +98,13 @@
 
   async function loadGame(gamePk) {
     currentGamePk = gamePk;
+    currentTrends = null;
     const data = await window.MLBApi.getLiveFeed(gamePk);
     renderGame(data);
+    loadSavantTrends().catch(error => {
+      $("trendDashboard").innerHTML = `<div class="empty-state">Baseball Savant trends are unavailable right now: ${escapeHtml(error.message || error)}</div>`;
+      console.warn(error);
+    });
     setLastUpdated();
   }
 
@@ -96,12 +119,17 @@
   function renderGame(data) {
     const gameData = data.gameData;
     const live = data.liveData;
+    if (!gameData || !live) {
+      throw new Error("The live feed did not include game data. Try another game or refresh in a moment.");
+    }
     const away = gameData.teams.away;
     const home = gameData.teams.home;
-    const linescore = live.linescore;
+    const linescore = live.linescore || {};
     const plays = live.plays?.allPlays || [];
+    currentGameData = data;
 
     $("gamePanel").hidden = false;
+    $("dashboardPanel").hidden = false;
     $("scorecardPanel").hidden = false;
     $("pitchingPanel").hidden = false;
     $("playPanel").hidden = false;
@@ -112,6 +140,8 @@
 
     $("lineScore").innerHTML = renderLineScore(linescore, away.name, home.name);
     $("situation").innerHTML = renderSituation(linescore, live.plays?.currentPlay);
+    $("officialScorecard").innerHTML = window.ScorecardEngine.renderOfficialSvg(data);
+    renderDashboard(data, currentTrends);
 
     const scorecards = window.ScorecardEngine.buildScorecards(data);
     $("awayTitle").textContent = `${away.name} Scorecard`;
@@ -124,19 +154,126 @@
     $("playLog").innerHTML = renderPlayLog(visiblePlays);
   }
 
+  async function loadSavantTrends() {
+    if (!currentGameData) {
+      showError("Open a game before loading trends.");
+      return;
+    }
+
+    const away = currentGameData.gameData.teams.away;
+    const home = currentGameData.gameData.teams.home;
+    const awayAbbr = teamAbbr(away.id);
+    const homeAbbr = teamAbbr(home.id);
+    if (!awayAbbr || !homeAbbr) {
+      throw new Error("Could not map one of these MLB teams to a Baseball Savant abbreviation.");
+    }
+    const endDate = $("dateInput").value || currentGameData.gameData.datetime?.officialDate || todayIso();
+    const startDate = addDays(endDate, -window.MLB_SCORECARD_CONFIG.SAVANT_LOOKBACK_DAYS);
+
+    $("trendDashboard").innerHTML = `<div class="empty-state">Loading Baseball Savant trends for ${escapeHtml(awayAbbr)} and ${escapeHtml(homeAbbr)}...</div>`;
+
+    const [awayCsv, homeCsv] = await Promise.all([
+      window.MLBApi.getSavantTeamCsv(awayAbbr, startDate, endDate, "batter"),
+      window.MLBApi.getSavantTeamCsv(homeAbbr, startDate, endDate, "batter")
+    ]);
+
+    currentTrends = {
+      startDate,
+      endDate,
+      away: window.AnalyticsEngine.summarizeSavant(awayCsv, away.name),
+      home: window.AnalyticsEngine.summarizeSavant(homeCsv, home.name)
+    };
+    renderDashboard(currentGameData, currentTrends);
+  }
+
+  function teamAbbr(teamId) {
+    return window.MLB_SCORECARD_CONFIG.TEAM_ABBR_BY_ID[String(teamId)] || "";
+  }
+
+  function addDays(isoDate, days) {
+    const date = new Date(`${isoDate}T12:00:00`);
+    date.setDate(date.getDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function renderDashboard(data, trends) {
+    const away = data.gameData.teams.away;
+    const home = data.gameData.teams.home;
+    const liveContact = window.AnalyticsEngine.getLiveContact(data);
+    const projection = window.AnalyticsEngine.buildProjection(data, trends?.away, trends?.home);
+    const leanName = projection.lean === "away" ? away.name : projection.lean === "home" ? home.name : "No clear lean";
+
+    $("predictionSummary").innerHTML = `
+      <div class="insight-card">
+        <span class="label">Projection</span>
+        <strong>${escapeHtml(leanName)}</strong>
+        <span>${escapeHtml(projection.confidence)} confidence</span>
+      </div>
+      <div class="insight-card">
+        <span class="label">${escapeHtml(away.name)} Win Lean</span>
+        <strong>${window.AnalyticsEngine.percentage(projection.awayWin)}</strong>
+        <span>transparent heuristic, not a betting line</span>
+      </div>
+      <div class="insight-card">
+        <span class="label">Projected Final</span>
+        <strong>${Math.round(projection.awayProjectedRuns)} - ${Math.round(projection.homeProjectedRuns)}</strong>
+        <span>${escapeHtml(away.name)} at ${escapeHtml(home.name)}</span>
+      </div>
+    `;
+
+    $("trendDashboard").innerHTML = `
+      ${renderTrendCards(away.name, home.name, trends)}
+      <div class="trend-card">
+        <h4>Live Contact Quality</h4>
+        <div class="metric-row"><span>${escapeHtml(away.name)} hard-hit rate</span><strong>${window.AnalyticsEngine.percentage(liveContact.away.hardHitRate)}</strong></div>
+        <div class="metric-row"><span>${escapeHtml(home.name)} hard-hit rate</span><strong>${window.AnalyticsEngine.percentage(liveContact.home.hardHitRate)}</strong></div>
+        <div class="metric-row"><span>${escapeHtml(away.name)} avg EV</span><strong>${window.AnalyticsEngine.decimal(liveContact.away.avgExitVelocity, 1)} mph</strong></div>
+        <div class="metric-row"><span>${escapeHtml(home.name)} avg EV</span><strong>${window.AnalyticsEngine.decimal(liveContact.home.avgExitVelocity, 1)} mph</strong></div>
+      </div>
+      <div class="trend-card">
+        <h4>Model Inputs</h4>
+        <p class="muted">Projection blends current score, hit differential, inning context, and Baseball Savant recent contact quality when available.</p>
+      </div>
+    `;
+  }
+
+  function renderTrendCards(awayName, homeName, trends) {
+    if (!trends) {
+      return `
+        <div class="trend-card">
+          <h4>Baseball Savant Trends</h4>
+          <p class="muted">Open a game to load recent Statcast contact quality through the Worker proxy.</p>
+        </div>
+      `;
+    }
+
+    return [trends.away, trends.home].map(team => `
+      <div class="trend-card">
+        <h4>${escapeHtml(team.label)}</h4>
+        <div class="metric-row"><span>Recent PA</span><strong>${team.pa}</strong></div>
+        <div class="metric-row"><span>xwOBA on contact</span><strong>${window.AnalyticsEngine.decimal(team.xwoba)}</strong></div>
+        <div class="metric-row"><span>Hard-hit rate</span><strong>${window.AnalyticsEngine.percentage(team.hardHitRate)}</strong></div>
+        <div class="metric-row"><span>Barrel rate</span><strong>${window.AnalyticsEngine.percentage(team.barrelRate)}</strong></div>
+        <div class="metric-row"><span>Avg exit velocity</span><strong>${window.AnalyticsEngine.decimal(team.avgExitVelocity, 1)} mph</strong></div>
+        <div class="metric-row"><span>HR in window</span><strong>${team.homers}</strong></div>
+      </div>
+    `).join("");
+  }
+
   function renderLineScore(linescore, awayName, homeName) {
     const innings = linescore.innings || [];
     const maxInnings = Math.max(9, innings.length);
     const headers = Array.from({ length: maxInnings }, (_, i) => `<th class="center">${i + 1}</th>`).join("");
     const awayCells = Array.from({ length: maxInnings }, (_, i) => `<td class="center">${innings[i]?.away?.runs ?? ""}</td>`).join("");
     const homeCells = Array.from({ length: maxInnings }, (_, i) => `<td class="center">${innings[i]?.home?.runs ?? ""}</td>`).join("");
+    const totals = linescore.teams || { away: {}, home: {} };
 
     return `
       <table>
         <thead><tr><th>Team</th>${headers}<th class="center">R</th><th class="center">H</th><th class="center">E</th></tr></thead>
         <tbody>
-          <tr><th>${escapeHtml(awayName)}</th>${awayCells}<td class="center">${linescore.teams.away.runs ?? 0}</td><td class="center">${linescore.teams.away.hits ?? 0}</td><td class="center">${linescore.teams.away.errors ?? 0}</td></tr>
-          <tr><th>${escapeHtml(homeName)}</th>${homeCells}<td class="center">${linescore.teams.home.runs ?? 0}</td><td class="center">${linescore.teams.home.hits ?? 0}</td><td class="center">${linescore.teams.home.errors ?? 0}</td></tr>
+          <tr><th>${escapeHtml(awayName)}</th>${awayCells}<td class="center total">${totals.away.runs ?? 0}</td><td class="center total">${totals.away.hits ?? 0}</td><td class="center total">${totals.away.errors ?? 0}</td></tr>
+          <tr><th>${escapeHtml(homeName)}</th>${homeCells}<td class="center total">${totals.home.runs ?? 0}</td><td class="center total">${totals.home.hits ?? 0}</td><td class="center total">${totals.home.errors ?? 0}</td></tr>
         </tbody>
       </table>
     `;
@@ -161,6 +298,7 @@
   }
 
   function renderScorecard(rows) {
+    if (!rows.length) return `<div class="empty-state">No batting data is available yet.</div>`;
     const inningHeaders = Array.from({ length: 12 }, (_, i) => `<th class="center">${i + 1}</th>`).join("");
     return `
       <table>
@@ -179,6 +317,7 @@
   }
 
   function renderPitchingLines(rows) {
+    if (!rows.length) return `<div class="empty-state">No pitching data is available yet.</div>`;
     return `
       <table>
         <thead><tr><th>Team</th><th>Pitcher</th><th>IP</th><th>H</th><th>R</th><th>ER</th><th>BB</th><th>K</th><th>HR</th><th>Pitches</th></tr></thead>
@@ -190,6 +329,7 @@
   }
 
   function renderPlayLog(plays) {
+    if (!plays.length) return `<div class="empty-state">No play-by-play is available yet.</div>`;
     return `
       <table>
         <thead><tr><th>#</th><th>Inning</th><th>Batter</th><th>Pitcher</th><th>Event</th><th>Description</th><th>Score</th></tr></thead>
@@ -210,14 +350,29 @@
     $("apiInput").value = window.MLB_SCORECARD_CONFIG.API_BASE;
     $("dateInput").value = todayIso();
     $("teamInput").value = window.MLB_SCORECARD_CONFIG.DEFAULT_TEAM_ID;
+    guarded(checkApiStatus);
     $("findGamesBtn").addEventListener("click", () => guarded(loadGames));
     $("refreshBtn").addEventListener("click", () => guarded(refreshGame));
+    $("apiInput").addEventListener("change", () => guarded(checkApiStatus));
     $("printBtn").addEventListener("click", () => window.print());
+    $("loadTrendsBtn").addEventListener("click", () => guarded(loadSavantTrends));
     $("toggleFullLogBtn").addEventListener("click", () => {
       showFullLog = !showFullLog;
       $("toggleFullLogBtn").textContent = showFullLog ? "Show Recent Plays" : "Show Full Log";
       if (currentGamePk) guarded(refreshGame);
     });
+  }
+
+  async function checkApiStatus() {
+    setApiStatus("checking", "API Status: checking...");
+    try {
+      const connected = await window.MLBApi.checkStatus();
+      if (!connected) throw new Error("The API proxy responded, but no MLB teams were returned.");
+      setApiStatus("connected", `API Status: connected to ${window.MLBApi.getApiBase()}`);
+    } catch (error) {
+      setApiStatus("error", "API Status: not connected");
+      throw error;
+    }
   }
 
   document.addEventListener("DOMContentLoaded", init);

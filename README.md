@@ -9,8 +9,9 @@ A static GitHub + Cloudflare Pages webpage that builds a live official-style MLB
 - `js/config.js` stores the API base URL.
 - `js/mlb-api.js` calls your Cloudflare Worker API proxy.
 - `js/scorecard.js` converts MLB play-by-play into scorecard rows.
+- `js/analytics.js` parses Baseball Savant CSV and builds trend/projection summaries.
 - `js/app.js` controls the webpage.
-- `worker/worker.js` is the Cloudflare Worker proxy that forwards requests to MLB Stats API.
+- `worker/worker.js` is the Cloudflare Worker proxy that forwards requests to MLB Stats API and Baseball Savant.
 
 ## Quick Start
 
@@ -51,3 +52,9 @@ https://mlb.denegri-justin.workers.dev/api/v1/teams?sportId=1
 ```
 
 You should see MLB JSON.
+
+Baseball Savant trend data is proxied through:
+
+```text
+/savant/statcast_search/csv
+```

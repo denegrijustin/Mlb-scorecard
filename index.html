@@ -8,9 +8,13 @@
 </head>
 <body>
   <header class="site-header">
-    <div>
+    <div class="header-copy">
       <h1>MLB Live Scorecard</h1>
       <p>Live official-style scorecards from MLB play-by-play</p>
+    </div>
+    <div id="apiStatus" class="api-status checking" role="status" aria-live="polite">
+      <span class="status-dot"></span>
+      <span id="apiStatusText">API Status: checking...</span>
     </div>
   </header>
 
@@ -75,6 +79,24 @@
       <div id="situation" class="situation-grid"></div>
     </section>
 
+    <section id="dashboardPanel" class="panel" hidden>
+      <div class="section-title">
+        <h2>Game Dashboard</h2>
+        <button id="loadTrendsBtn" class="secondary small">Refresh Trends</button>
+      </div>
+      <div id="predictionSummary" class="insight-grid"></div>
+      <div class="dashboard-layout">
+        <div>
+          <h3>Official Sheet View</h3>
+          <div id="officialScorecard" class="svg-scorecard-wrap"></div>
+        </div>
+        <div>
+          <h3>Trends, Projection, Notes</h3>
+          <div id="trendDashboard" class="trend-stack"></div>
+        </div>
+      </div>
+    </section>
+
     <section id="scorecardPanel" class="scorecard-grid" hidden>
       <div class="panel">
         <h2 id="awayTitle">Away Scorecard</h2>
@@ -104,6 +126,7 @@
   <script src="js/config.js"></script>
   <script src="js/mlb-api.js"></script>
   <script src="js/scorecard.js"></script>
+  <script src="js/analytics.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

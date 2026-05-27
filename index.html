@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MLB Live Scorecard</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <h1>MLB Live Scorecard</h1>
+      <p>Live official-style scorecards from MLB play-by-play</p>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="panel controls">
+      <div id="errorBox" class="error" hidden></div>
+
+      <div class="control-grid">
+        <div>
+          <label for="apiInput">API URL</label>
+          <input id="apiInput" type="text" />
+        </div>
+
+        <div>
+          <label for="dateInput">Game date</label>
+          <input id="dateInput" type="date" />
+        </div>
+
+        <div>
+          <label for="teamInput">Team filter</label>
+          <select id="teamInput">
+            <option value="">All teams</option>
+            <option value="118" selected>Kansas City Royals</option>
+            <option value="147">New York Yankees</option>
+            <option value="119">Los Angeles Dodgers</option>
+            <option value="138">St. Louis Cardinals</option>
+            <option value="145">Chicago White Sox</option>
+            <option value="112">Chicago Cubs</option>
+            <option value="113">Cincinnati Reds</option>
+            <option value="158">Milwaukee Brewers</option>
+            <option value="142">Minnesota Twins</option>
+          </select>
+        </div>
+
+        <div class="button-row">
+          <button id="findGamesBtn">Find Games</button>
+          <button id="refreshBtn" class="secondary">Refresh</button>
+          <button id="printBtn" class="secondary">Print</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>Games</h2>
+        <span id="lastUpdated" class="muted"></span>
+      </div>
+      <div id="gamesList" class="muted">Choose a date, then click Find Games.</div>
+    </section>
+
+    <section id="gamePanel" class="panel" hidden>
+      <div class="section-title">
+        <h2 id="gameTitle">Game</h2>
+        <span id="gameStatus" class="pill"></span>
+      </div>
+      <div id="gameMeta" class="muted"></div>
+
+      <h3>Line Score</h3>
+      <div id="lineScore" class="table-wrap"></div>
+
+      <h3>Current Situation</h3>
+      <div id="situation" class="situation-grid"></div>
+    </section>
+
+    <section id="scorecardPanel" class="scorecard-grid" hidden>
+      <div class="panel">
+        <h2 id="awayTitle">Away Scorecard</h2>
+        <div id="awayScorecard" class="table-wrap"></div>
+      </div>
+
+      <div class="panel">
+        <h2 id="homeTitle">Home Scorecard</h2>
+        <div id="homeScorecard" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="pitchingPanel" class="panel" hidden>
+      <h2>Pitching Lines</h2>
+      <div id="pitchingLines" class="table-wrap"></div>
+    </section>
+
+    <section id="playPanel" class="panel" hidden>
+      <div class="section-title">
+        <h2>Recent Play-by-Play</h2>
+        <button id="toggleFullLogBtn" class="secondary small">Show Full Log</button>
+      </div>
+      <div id="playLog" class="table-wrap"></div>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/mlb-api.js"></script>
+  <script src="js/scorecard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
